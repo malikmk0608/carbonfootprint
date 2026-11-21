@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Leaf, Calendar, Trees } from 'lucide-react';
+import { Leaf, Calendar, Trees, LayoutDashboard, SlidersHorizontal, School } from 'lucide-react';
 import { FallingLeaves } from './components/FallingLeaves';
 import { DailyLogger } from './components/DailyLogger';
 import { HistoryLog } from './components/HistoryLog';
@@ -7,6 +7,9 @@ import type { HistoryEntry } from './components/HistoryLog';
 import { VirtualForest } from './components/VirtualForest';
 import { EcoSapling } from './components/EcoSapling';
 import { IntroModal } from './components/IntroModal';
+import { Dashboard } from './components/Dashboard';
+import { WhatIfSimulator } from './components/WhatIfSimulator';
+import { CampusImpact } from './components/CampusImpact';
 
 const ECO_TIPS = [
   "Leaving heating/cooling on for just 2 hours less saves up to 2.4 kg of CO₂e, equivalent to growing 10% of a tree instantly!",
@@ -28,8 +31,8 @@ function App() {
   const [showIntro, setShowIntro] = useState<boolean>(false);
   const [showResetConfirm, setShowResetConfirm] = useState<boolean>(false);
 
-  // Navigation tab: 'logger' | 'history' | 'forest'
-  const [activeTab, setActiveTab] = useState<string>('logger');
+  // Navigation tab: 'dashboard' | 'logger' | 'whatif' | 'campus' | 'history' | 'forest'
+  const [activeTab, setActiveTab] = useState<string>('dashboard');
 
   // Gamification & Log state
   const [ecoPoints, setEcoPoints] = useState<number>(180);
@@ -37,6 +40,8 @@ function App() {
   const [savedCarbon, setSavedCarbon] = useState<number>(45.5); // total carbon saved in kg
   const [history, setHistory] = useState<HistoryEntry[]>([]);
 
+  // Carbon Budget target (default 4.0 kg/day ~ Paris Agreement ~1.5t/yr)
+  const [carbonBudgetTarget, setCarbonBudgetTarget] = useState<number>(4.0);
 
   // Load baseline if saved in localStorage, otherwise initialize with mock data for instant visualization!
   useEffect(() => {
@@ -44,8 +49,11 @@ function App() {
     const savedStreak = localStorage.getItem('ecosphere_streak');
     const savedCarbonVal = localStorage.getItem('ecosphere_saved_carbon');
     const savedHistory = localStorage.getItem('ecosphere_history');
+    const savedBudget = localStorage.getItem('ecosphere_budget_target');
     // Always show intro screen like a heartbeat on login/page-load!
     setShowIntro(true);
+
+    if (savedBudget) setCarbonBudgetTarget(parseFloat(savedBudget));
 
     if (savedHistory) {
       setHistory(JSON.parse(savedHistory));
@@ -55,23 +63,30 @@ function App() {
     } else {
       // Mock history so the chart and forest look premium immediately!
       const mockHistory: HistoryEntry[] = [
-        { id: 'h1', date: '2026-06-12', footprint: 16.2, savings: 1.8, xp: 25 },
-        { id: 'h2', date: '2026-06-13', footprint: 12.4, savings: 5.6, xp: 45 },
-        { id: 'h3', date: '2026-06-14', footprint: 15.0, savings: 3.0, xp: 30 },
-        { id: 'h4', date: '2026-06-15', footprint: 8.8, savings: 9.2, xp: 75 },
-        { id: 'h5', date: '2026-06-16', footprint: 11.2, savings: 6.8, xp: 55 },
+        { id: 'h1', date: '2026-08-08', footprint: 16.2, savings: 1.8, xp: 25 },
+        { id: 'h2', date: '2026-08-09', footprint: 12.4, savings: 5.6, xp: 45 },
+        { id: 'h3', date: '2026-08-10', footprint: 15.0, savings: 3.0, xp: 30 },
+        { id: 'h4', date: '2026-08-11', footprint: 8.8, savings: 9.2, xp: 75 },
+        { id: 'h5', date: '2026-08-12', footprint: 11.2, savings: 6.8, xp: 55 },
+        { id: 'h6', date: '2026-08-13', footprint: 9.5, savings: 8.5, xp: 65 },
+        { id: 'h7', date: '2026-08-14', footprint: 10.1, savings: 7.9, xp: 60 },
       ];
       setHistory(mockHistory);
-      setSavedCarbon(26.4); // sum of savings (1.8 + 5.6 + 3.0 + 9.2 + 6.8 = 26.4 kg)
-      setEcoPoints(230);    // sum of xp (25 + 45 + 30 + 75 + 55 = 230 XP)
-      setStreak(5);
+      setSavedCarbon(42.8); // sum of savings
+      setEcoPoints(355);    // sum of xp
+      setStreak(7);
       
       localStorage.setItem('ecosphere_history', JSON.stringify(mockHistory));
-      localStorage.setItem('ecosphere_saved_carbon', '26.4');
-      localStorage.setItem('ecosphere_points', '230');
-      localStorage.setItem('ecosphere_streak', '5');
+      localStorage.setItem('ecosphere_saved_carbon', '42.8');
+      localStorage.setItem('ecosphere_points', '355');
+      localStorage.setItem('ecosphere_streak', '7');
     }
   }, []);
+
+  const handleSetBudgetTarget = (target: number) => {
+    setCarbonBudgetTarget(target);
+    localStorage.setItem('ecosphere_budget_target', target.toString());
+  };
 
   const handleSaveLog = (footprint: number, savings: number, xp: number) => {
     const todayStr = new Date().toISOString().split('T')[0]; // 'YYYY-MM-DD'
@@ -140,9 +155,20 @@ function App() {
       });
     }
   };
+
   const todayStr = new Date().toISOString().split('T')[0];
   const todayLog = history.find((h) => h.date === todayStr);
   const todaySavings = todayLog ? todayLog.savings : 0;
+  const todayFootprint = todayLog ? todayLog.footprint : 12.0;
+
+  const tabs = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'logger', label: 'Logger', icon: Leaf },
+    { id: 'whatif', label: 'What-If', icon: SlidersHorizontal },
+    { id: 'campus', label: 'Campus', icon: School },
+    { id: 'history', label: 'History', icon: Calendar },
+    { id: 'forest', label: 'Forest', icon: Trees },
+  ];
 
   return (
     <>
@@ -180,6 +206,7 @@ function App() {
                   localStorage.removeItem('ecosphere_points');
                   localStorage.removeItem('ecosphere_streak');
                   localStorage.removeItem('ecosphere_intro_seen');
+                  localStorage.removeItem('ecosphere_budget_target');
                   setShowIntro(true); // reset and show intro modal
                   setShowResetConfirm(false);
                 }}
@@ -217,7 +244,7 @@ function App() {
                 Eco<span className="gradient-text">Sphere</span>
               </h1>
               <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: '600' }}>
-                Daily Footprint Logger
+                Carbon Decision Engine
               </span>
             </div>
           </div>
@@ -247,34 +274,50 @@ function App() {
           </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="nav-tabs">
-          <button 
-            className={`nav-tab-btn ${activeTab === 'logger' ? 'active' : ''}`}
-            onClick={() => setActiveTab('logger')}
-          >
-            <Leaf size={16} /> Daily Logger
-          </button>
-          <button 
-            className={`nav-tab-btn ${activeTab === 'history' ? 'active' : ''}`}
-            onClick={() => setActiveTab('history')}
-          >
-            <Calendar size={16} /> Logs History
-          </button>
-          <button 
-            className={`nav-tab-btn ${activeTab === 'forest' ? 'active' : ''}`}
-            onClick={() => setActiveTab('forest')}
-          >
-            <Trees size={16} /> My Virtual Forest
-          </button>
+        {/* Navigation Tabs - 6 tabs with scrollable container */}
+        <div className="nav-tabs" style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          {tabs.map(tab => {
+            const Icon = tab.icon;
+            return (
+              <button 
+                key={tab.id}
+                className={`nav-tab-btn ${activeTab === tab.id ? 'active' : ''}`}
+                onClick={() => setActiveTab(tab.id)}
+                style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+              >
+                <Icon size={16} /> {tab.label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Tab Panels */}
         <main style={{ flex: 1 }}>
+          {activeTab === 'dashboard' && (
+            <Dashboard
+              ecoPoints={ecoPoints}
+              streak={streak}
+              savedCarbon={savedCarbon}
+              history={history}
+              carbonBudgetTarget={carbonBudgetTarget}
+              onSetBudgetTarget={handleSetBudgetTarget}
+            />
+          )}
           {activeTab === 'logger' && (
             <DailyLogger 
               onSaveLog={handleSaveLog} 
               streak={streak} 
+            />
+          )}
+          {activeTab === 'whatif' && (
+            <WhatIfSimulator 
+              history={history}
+            />
+          )}
+          {activeTab === 'campus' && (
+            <CampusImpact 
+              dailyFootprint={todayFootprint}
+              history={history}
             />
           )}
           {activeTab === 'history' && (
@@ -293,7 +336,7 @@ function App() {
 
         {/* Footer */}
         <footer style={{ marginTop: '4rem', borderTop: '1px solid var(--border-color)', paddingTop: '1.5rem', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-          <p>© 2026 EcoSphere. Built on science-backed models (EPA, DEFRA, Science 2018). Live Lightly on Earth.</p>
+          <p>© 2026 EcoSphere — Carbon Decision Engine. Built on science-backed models (EPA, DEFRA, Science 2018). Live Lightly on Earth.</p>
         </footer>
       </div>
     </>
@@ -301,4 +344,3 @@ function App() {
 }
 
 export default App;
-

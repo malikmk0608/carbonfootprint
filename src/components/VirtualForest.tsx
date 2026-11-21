@@ -39,21 +39,21 @@ export const VirtualForest: React.FC<VirtualForestProps> = ({ savedCarbon, ecoPo
   const sproutPercentage = (remainingCarbon / carbonPerTree) * 100;
 
   // Let's generate an array of trees to display in the grid
-  const treeList: { id: number; stage: 'sprout' | 'sapling' | 'pine' | 'oak'; icon: string }[] = [];
+  const treeList: { id: number; stage: string; icon: string }[] = [];
   
   for (let i = 0; i < totalTrees; i++) {
     // Determine type based on index to show a diverse forest!
-    let stage: 'sprout' | 'sapling' | 'pine' | 'oak' = 'sprout';
+    let stage = 'sprout';
     let icon = '🌱';
     
     if (i < 2) {
-      stage = 'sapling';
-      icon = '🌿';
+      stage = 'young tree';
+      icon = '🌳';
     } else if (i < 6) {
       stage = 'pine';
       icon = '🌲';
     } else {
-      stage = 'oak';
+      stage = 'ancient oak';
       icon = '🌳';
     }
     
@@ -64,7 +64,7 @@ export const VirtualForest: React.FC<VirtualForestProps> = ({ savedCarbon, ecoPo
   if (hasSprout) {
     treeList.push({ 
       id: totalTrees, 
-      stage: 'sprout', 
+      stage: 'sprouting...', 
       icon: '🌱' 
     });
   }
@@ -86,8 +86,21 @@ export const VirtualForest: React.FC<VirtualForestProps> = ({ savedCarbon, ecoPo
           <div className="stats-row">
             <div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Trees Grown</div>
-              <div style={{ fontSize: '1.8rem', fontWeight: '800', color: 'white' }}>
-                {totalTrees} {hasSprout && <span style={{ fontSize: '0.9rem', color: 'var(--primary-light)', fontWeight: '500' }}>+ 1 sprout</span>}
+              <div style={{ fontSize: '1.8rem', fontWeight: '800', color: 'white', display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                {totalTrees > 0 ? (
+                  <>
+                    {totalTrees} <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', fontWeight: '500', textTransform: 'lowercase' }}>mature</span>
+                    {hasSprout && <span style={{ fontSize: '0.9rem', color: 'var(--primary-light)', fontWeight: '500' }}>+ 1 sprout</span>}
+                  </>
+                ) : (
+                  <>
+                    {hasSprout ? (
+                      <span style={{ color: 'var(--primary-light)' }}>1 Sprout</span>
+                    ) : (
+                      '0'
+                    )}
+                  </>
+                )}
               </div>
             </div>
             <div className="stats-row-divider">

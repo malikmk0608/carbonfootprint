@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
-import { Car, Utensils, Zap, Trash2, Check, Leaf } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Utensils, Zap, Trash2, Check, Leaf, MapPin, Info } from 'lucide-react';
+import { TRANSPORT_FACTORS, DIET_FACTORS, calculateConfidence, calculateFootprintRange, rankActions } from '../utils/footprintCalculator';
+import type { DailyInputs } from '../utils/footprintCalculator';
 
 interface DailyLoggerProps {
   onSaveLog: (footprint: number, savings: number, xp: number) => void;
@@ -7,13 +9,13 @@ interface DailyLoggerProps {
 }
 
 export const DailyLogger: React.FC<DailyLoggerProps> = ({ onSaveLog, streak }) => {
-  // Today's Activity States
-  const [transportMode, setTransportMode] = useState<'petrol' | 'diesel' | 'ev' | 'transit' | 'active'>('petrol');
-  const [transportDistance, setTransportDistance] = useState<number>(20);
-  const [dietType, setDietType] = useState<'high-meat' | 'average' | 'vegetarian' | 'vegan'>('average');
-  const [heatingHours, setHeatingHours] = useState<number>(2);
+  // Campus-specific transport modes
+  const [transportMode, setTransportMode] = useState<string>('petrol');
+  const [transportDistance, setTransportDistance] = useState<number>(12);
+  const [dietType, setDietType] = useState<string>('average');
+  const [heatingHours, setHeatingHours] = useState<number>(3);
   const [electricityHours, setElectricityHours] = useState<number>(6);
-  const [recycled, setRecycled] = useState<boolean>(true);
+  const [recycled, setRecycled] = useState<boolean>(false);
   const [purchases, setPurchases] = useState<number>(0);
   const [customAction, setCustomAction] = useState<string>('');
 
@@ -21,35 +23,60 @@ export const DailyLogger: React.FC<DailyLoggerProps> = ({ onSaveLog, streak }) =
   const [showSuccess, setShowSuccess] = useState<boolean>(false);
   const [lastCalculation, setLastCalculation] = useState<{ footprint: number; savings: number; xp: number } | null>(null);
 
+  // Current inputs object
+  const currentInputs: DailyInputs = {
+    transportMode,
+    transportDistance,
+    dietType,
+    acHours: heatingHours,
+    electronicsHours: electricityHours,
+    recycled,
+    purchases,
+    customAction,
+  };
+
   // Calculate carbon footprint dynamically for preview
   const calculateTodayFootprint = (): number => {
-    // 1. Transport
-    let transportFactor = 0;
-    if (transportMode === 'petrol') transportFactor = 0.19;
-    else if (transportMode === 'diesel') transportFactor = 0.18;
-    else if (transportMode === 'ev') transportFactor = 0.05;
-    else if (transportMode === 'transit') transportFactor = 0.04;
+    const tFactor = TRANSPORT_FACTORS[transportMode]?.factor ?? 0;
+    const transportEmissions = transportDistance * tFactor;
 
-    const transportEmissions = transportDistance * transportFactor;
+    const dietEmissions = DIET_FACTORS[dietType]?.factor ?? 5.5;
 
-    // 2. Diet
-    let dietEmissions = 5.5;
-    if (dietType === 'high-meat') dietEmissions = 8.0;
-    else if (dietType === 'vegetarian') dietEmissions = 2.8;
-    else if (dietType === 'vegan') dietEmissions = 1.8;
-
-    // 3. Energy
     const energyEmissions = (heatingHours * 1.2) + (electricityHours * 0.45);
 
-    // 4. Waste & Consumption
-    const wasteEmissions = 1.5 - (recycled ? 0.6 : 0);
+    const wasteEmissions = recycled ? 0.9 : 1.5;
     const shoppingEmissions = purchases * 1.5;
 
-    // 5. Custom Eco-Action
     const customDeduction = customAction.trim() !== '' ? 2.0 : 0;
 
     return parseFloat(Math.max(0.1, transportEmissions + dietEmissions + energyEmissions + wasteEmissions + shoppingEmissions - customDeduction).toFixed(2));
   };
+
+  const todayFootprintPreview = calculateTodayFootprint();
+
+  // Confidence score
+  const confidence = useMemo(() => calculateConfidence(currentInputs), [transportMode, transportDistance, dietType, heatingHours, electricityHours, recycled, purchases]);
+  const footprintRange = useMemo(() => calculateFootprintRange(todayFootprintPreview, confidence), [todayFootprintPreview, confidence]);
+
+  // Category breakdown for preview
+  const transportEmission = transportDistance * (TRANSPORT_FACTORS[transportMode]?.factor ?? 0);
+  const dietEmission = DIET_FACTORS[dietType]?.factor ?? 5.5;
+  const energyEmission = (heatingHours * 1.2) + (electricityHours * 0.45);
+  const wasteEmission = (recycled ? 0.9 : 1.5) + (purchases * 1.5);
+
+  // Find biggest source
+  const sources = [
+    { name: 'Transportation', value: transportEmission, icon: '🚗', color: '#06b6d4' },
+    { name: 'Diet & Food', value: dietEmission, icon: '🍽️', color: '#f59e0b' },
+    { name: 'Energy', value: energyEmission, icon: '⚡', color: '#eab308' },
+    { name: 'Waste & Lifestyle', value: wasteEmission, icon: '♻️', color: '#6366f1' },
+  ].sort((a, b) => b.value - a.value);
+
+  const biggestSource = sources[0];
+  const biggestPct = todayFootprintPreview > 0 ? Math.round((biggestSource.value / todayFootprintPreview) * 100) : 0;
+
+  // Top recommendation
+  const topActions = useMemo(() => rankActions(currentInputs).slice(0, 1), [transportMode, transportDistance, dietType, heatingHours, electricityHours, recycled, purchases]);
 
   const handleSave = () => {
     const todayFootprint = calculateTodayFootprint();
@@ -67,42 +94,92 @@ export const DailyLogger: React.FC<DailyLoggerProps> = ({ onSaveLog, streak }) =
     setShowSuccess(true);
     setCustomAction('');
     
-    // Reset state after showing confirmation for 5 seconds
     setTimeout(() => {
       setShowSuccess(false);
     }, 5000);
   };
 
-  const todayFootprintPreview = calculateTodayFootprint();
+  // Campus transport options for radio cards
+  const campusTransportOptions = [
+    { value: 'walk', label: 'Walk', icon: '🚶', sub: 'Zero emissions' },
+    { value: 'bicycle', label: 'Bicycle', icon: '🚲', sub: 'Zero emissions' },
+    { value: 'college-bus', label: 'College Bus', icon: '🚌', sub: '0.025 kg/km' },
+    { value: 'metro', label: 'Metro', icon: '🚇', sub: '0.02 kg/km' },
+    { value: 'two-wheeler', label: 'Two-Wheeler', icon: '🛵', sub: '0.05 kg/km' },
+    { value: 'cab', label: 'Cab / Auto', icon: '🚕', sub: '0.08 kg/km' },
+    { value: 'petrol', label: 'Car (Petrol)', icon: '🚗', sub: '0.19 kg/km' },
+    { value: 'transit', label: 'Public Bus', icon: '🚌', sub: '0.04 kg/km' },
+  ];
+
+  const dietOptions = [
+    { value: 'high-meat', label: 'Heavy Meat', icon: '🥩', sub: '~8.0 kg CO₂' },
+    { value: 'average', label: 'Mixed / Average', icon: '🍗', sub: '~5.5 kg CO₂' },
+    { value: 'canteen', label: 'Canteen / Mess', icon: '🍽️', sub: '~4.5 kg CO₂' },
+    { value: 'vegetarian', label: 'Vegetarian', icon: '🥬', sub: '~2.8 kg CO₂' },
+    { value: 'vegan', label: 'Vegan', icon: '🌱', sub: '~1.8 kg CO₂' },
+  ];
+
+  const needsDistance = !['walk', 'bicycle', 'active'].includes(transportMode);
 
   return (
     <div className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       
-      {/* Dynamic Summary Banner */}
-      <div className="glass-card grid-3" style={{ padding: '1.5rem', textAlign: 'center', background: 'rgba(16, 185, 129, 0.08)', borderLeft: '4px solid var(--primary)' }}>
-        <div>
-          <span className="metric-label">Estimated Today</span>
-          <span className="metric-value" style={{ color: todayFootprintPreview > 15 ? 'var(--danger)' : todayFootprintPreview > 8 ? 'var(--accent)' : 'var(--primary-light)' }}>
-            {todayFootprintPreview.toFixed(1)} <span style={{ fontSize: '1.25rem', fontWeight: '500' }}>kg</span>
-          </span>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>CO₂e footprint preview</span>
+      {/* ═══ DECISION PREVIEW BANNER ═══ */}
+      <div className="glass-card" style={{ padding: '1.5rem', background: 'rgba(16, 185, 129, 0.06)', borderLeft: '4px solid var(--primary)', position: 'relative' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1.25rem', textAlign: 'center' }}>
+          {/* Estimated Footprint with range */}
+          <div>
+            <span className="metric-label">Estimated Today</span>
+            <span className="metric-value" style={{ color: todayFootprintPreview > 15 ? 'var(--danger)' : todayFootprintPreview > 8 ? 'var(--accent)' : 'var(--primary-light)' }}>
+              {todayFootprintPreview.toFixed(1)} <span style={{ fontSize: '1.25rem', fontWeight: '500' }}>kg</span>
+            </span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>
+              Range: {footprintRange.low}–{footprintRange.high} kg CO₂e
+            </span>
+          </div>
+
+          {/* Biggest Source */}
+          <div className="metric-cell-bordered">
+            <span className="metric-label">Biggest Source</span>
+            <span className="metric-value" style={{ color: biggestSource.color, fontSize: '1.2rem' }}>
+              {biggestSource.icon} {biggestPct}%
+            </span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>
+              {biggestSource.name}
+            </span>
+          </div>
+
+          {/* Confidence */}
+          <div className="metric-cell-bordered">
+            <span className="metric-label">Confidence</span>
+            <span className="metric-value" style={{ color: confidence.color, fontSize: '1.2rem' }}>
+              {confidence.score}%
+            </span>
+            <span style={{ fontSize: '0.75rem', color: confidence.color, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: confidence.color, display: 'inline-block' }} />
+              {confidence.rating}
+            </span>
+          </div>
+
+          {/* Streak */}
+          <div className="metric-cell">
+            <span className="metric-label">Current Streak</span>
+            <span className="metric-value" style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
+              🔥 {streak} Days
+            </span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'block' }}>Keep logging daily</span>
+          </div>
         </div>
 
-        <div className="metric-cell-bordered">
-          <span className="metric-label">Daily Avg Target</span>
-          <span className="metric-value" style={{ color: 'white' }}>
-            5.5 <span style={{ fontSize: '1.25rem', fontWeight: '500' }}>kg</span>
-          </span>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Required for climate target</span>
-        </div>
-
-        <div className="metric-cell">
-          <span className="metric-label">Current Streak</span>
-          <span className="metric-value" style={{ color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem' }}>
-            🔥 {streak} Days
-          </span>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Keep logging to build your record</span>
-        </div>
+        {/* Quick insight */}
+        {topActions.length > 0 && (
+          <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: 'rgba(16, 185, 129, 0.08)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(16, 185, 129, 0.15)', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <Info size={16} color="var(--primary-light)" style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: '0.82rem', color: 'var(--primary-light)', fontWeight: '600' }}>
+              Best move: {topActions[0].icon} {topActions[0].title} → saves {topActions[0].weeklyReductionKg} kg/week
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="grid-3-main">
@@ -113,135 +190,96 @@ export const DailyLogger: React.FC<DailyLoggerProps> = ({ onSaveLog, streak }) =
             Record Today's Activities
           </h2>
 
-          {/* 1. TRANSPORT - Cyan Theme */}
+          {/* 1. TRANSPORT - Campus-specific */}
           <div className="glass-card card-theme-transport" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-              <Car size={18} color="var(--secondary)" />
-              <h3 style={{ fontSize: '1rem', fontWeight: '700' }}>Transportation Log</h3>
+              <MapPin size={18} color="var(--secondary)" />
+              <h3 style={{ fontSize: '1rem', fontWeight: '700' }}>How do you get to campus?</h3>
             </div>
-            <div className="grid-2">
-              <div className="form-group" style={{ margin: 0 }}>
-                <label htmlFor="transportMode" className="form-label">Transport Mode</label>
-                <select
-                  id="transportMode"
-                  value={transportMode}
-                  onChange={(e) => setTransportMode(e.target.value as any)}
-                  className="form-select"
-                  style={{ background: '#091c24' }}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.5rem' }} role="radiogroup" aria-label="Transport Mode">
+              {campusTransportOptions.map(opt => (
+                <div 
+                  key={opt.value}
+                  className={`option-card ${transportMode === opt.value ? 'selected' : ''}`}
+                  style={{ borderColor: 'rgba(6, 182, 212, 0.15)', padding: '0.75rem', cursor: 'pointer', textAlign: 'center', flexDirection: 'column', justifyContent: 'center', gap: '0.25rem' }}
+                  onClick={() => setTransportMode(opt.value)}
+                  role="radio"
+                  aria-checked={transportMode === opt.value}
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTransportMode(opt.value); } }}
                 >
-                  <option value="petrol">Petrol (Gasoline) Car</option>
-                  <option value="diesel">Diesel Car</option>
-                  <option value="ev">Electric Car (EV)</option>
-                  <option value="transit">Public Transit (Bus/Train)</option>
-                  <option value="active">Active (Walk, Bike, Skate)</option>
-                </select>
-              </div>
-
-              {transportMode !== 'active' && (
-                <div className="slider-container" style={{ margin: 0 }}>
-                  <div className="slider-header">
-                    <label htmlFor="transportDistance" className="form-label">Distance Driven/Ridden</label>
-                    <span className="slider-value" style={{ color: 'var(--secondary)' }}>{transportDistance} km</span>
-                  </div>
-                  <input
-                    id="transportDistance"
-                    type="range"
-                    min="0"
-                    max="150"
-                    step="5"
-                    value={transportDistance}
-                    onChange={(e) => setTransportDistance(parseInt(e.target.value))}
-                    className="custom-slider"
-                    style={{ background: 'rgba(6, 182, 212, 0.15)' }}
-                    aria-valuemin={0}
-                    aria-valuemax={150}
-                    aria-valuenow={transportDistance}
-                  />
+                  <div style={{ fontSize: '1.5rem', marginBottom: '0.25rem' }}>{opt.icon}</div>
+                  <h4 style={{ fontSize: '0.8rem', fontWeight: '600' }}>{opt.label}</h4>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{opt.sub}</span>
                 </div>
-              )}
+              ))}
             </div>
+
+            {needsDistance && (
+              <div className="slider-container" style={{ margin: 0 }}>
+                <div className="slider-header">
+                  <label htmlFor="transportDistance" className="form-label">Distance to campus (home/hostel)</label>
+                  <span className="slider-value" style={{ color: 'var(--secondary)' }}>{transportDistance} km</span>
+                </div>
+                <input
+                  id="transportDistance"
+                  type="range"
+                  min="0"
+                  max="60"
+                  step="1"
+                  value={transportDistance}
+                  onChange={(e) => setTransportDistance(parseInt(e.target.value))}
+                  className="custom-slider"
+                  style={{ background: 'rgba(6, 182, 212, 0.15)' }}
+                  aria-valuemin={0}
+                  aria-valuemax={60}
+                  aria-valuenow={transportDistance}
+                />
+                {transportEmission > 0 && (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--secondary)', marginTop: '0.25rem', display: 'block' }}>
+                    Transport emission: {transportEmission.toFixed(1)} kg CO₂e
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* 2. DIET - Orange/Amber Theme */}
+          {/* 2. DIET - With Canteen/Mess option */}
           <div className="glass-card card-theme-diet" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
               <Utensils size={18} color="var(--accent)" />
-              <h3 style={{ fontSize: '1rem', fontWeight: '700' }}>Diet Choices Today</h3>
+              <h3 style={{ fontSize: '1rem', fontWeight: '700' }}>What did you eat today?</h3>
             </div>
-            <div className="grid-2" role="radiogroup" aria-label="Diet Choices Today">
-              <div 
-                className={`option-card ${dietType === 'high-meat' ? 'selected' : ''}`}
-                style={{ borderColor: 'rgba(245, 158, 11, 0.15)' }}
-                onClick={() => setDietType('high-meat')}
-                role="radio"
-                aria-checked={dietType === 'high-meat'}
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDietType('high-meat'); } }}
-              >
-                <div className="checkbox-circle" style={{ borderColor: 'rgba(245, 158, 11, 0.5)' }} />
-                <div>
-                  <h4 style={{ fontSize: '0.85rem' }}>Meat Heavily</h4>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Heavy beef/lamb (~8.0kg CO₂)</span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.5rem' }} role="radiogroup" aria-label="Diet Choices Today">
+              {dietOptions.map(opt => (
+                <div 
+                  key={opt.value}
+                  className={`option-card ${dietType === opt.value ? 'selected' : ''}`}
+                  style={{ borderColor: 'rgba(245, 158, 11, 0.15)', padding: '0.75rem', cursor: 'pointer', textAlign: 'center', flexDirection: 'column', justifyContent: 'center', gap: '0.25rem' }}
+                  onClick={() => setDietType(opt.value)}
+                  role="radio"
+                  aria-checked={dietType === opt.value}
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDietType(opt.value); } }}
+                >
+                  <div style={{ fontSize: '1.5rem', marginBottom: '0.25rem' }}>{opt.icon}</div>
+                  <h4 style={{ fontSize: '0.8rem', fontWeight: '600' }}>{opt.label}</h4>
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{opt.sub}</span>
                 </div>
-              </div>
-              <div 
-                className={`option-card ${dietType === 'average' ? 'selected' : ''}`}
-                style={{ borderColor: 'rgba(245, 158, 11, 0.15)' }}
-                onClick={() => setDietType('average')}
-                role="radio"
-                aria-checked={dietType === 'average'}
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDietType('average'); } }}
-              >
-                <div className="checkbox-circle" style={{ borderColor: 'rgba(245, 158, 11, 0.5)' }} />
-                <div>
-                  <h4 style={{ fontSize: '0.85rem' }}>Average / Mixed</h4>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Poultry, dairy, veggies (~5.5kg CO₂)</span>
-                </div>
-              </div>
-              <div 
-                className={`option-card ${dietType === 'vegetarian' ? 'selected' : ''}`}
-                style={{ borderColor: 'rgba(245, 158, 11, 0.15)' }}
-                onClick={() => setDietType('vegetarian')}
-                role="radio"
-                aria-checked={dietType === 'vegetarian'}
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDietType('vegetarian'); } }}
-              >
-                <div className="checkbox-circle" style={{ borderColor: 'rgba(245, 158, 11, 0.5)' }} />
-                <div>
-                  <h4 style={{ fontSize: '0.85rem' }}>Vegetarian</h4>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>No meat/fish, dairy OK (~2.8kg CO₂)</span>
-                </div>
-              </div>
-              <div 
-                className={`option-card ${dietType === 'vegan' ? 'selected' : ''}`}
-                style={{ borderColor: 'rgba(245, 158, 11, 0.15)' }}
-                onClick={() => setDietType('vegan')}
-                role="radio"
-                aria-checked={dietType === 'vegan'}
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDietType('vegan'); } }}
-              >
-                <div className="checkbox-circle" style={{ borderColor: 'rgba(245, 158, 11, 0.5)' }} />
-                <div>
-                  <h4 style={{ fontSize: '0.85rem' }}>Vegan</h4>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>100% plant-based (~1.8kg CO₂)</span>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 
-          {/* 3. ENERGY - Yellow Theme */}
+          {/* 3. ENERGY - Student-specific */}
           <div className="glass-card card-theme-energy" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
               <Zap size={18} color="#eab308" />
-              <h3 style={{ fontSize: '1rem', fontWeight: '700' }}>Household Energy Usage</h3>
+              <h3 style={{ fontSize: '1rem', fontWeight: '700' }}>Energy Usage Today</h3>
             </div>
             <div className="grid-2">
               <div className="slider-container" style={{ margin: 0 }}>
                 <div className="slider-header">
-                  <label htmlFor="heatingHours" className="form-label">Heating/AC Hours</label>
+                  <label htmlFor="heatingHours" className="form-label">AC / Fan Hours</label>
                   <span className="slider-value" style={{ color: '#eab308' }}>{heatingHours} hrs</span>
                 </div>
                 <input
@@ -257,11 +295,12 @@ export const DailyLogger: React.FC<DailyLoggerProps> = ({ onSaveLog, streak }) =
                   aria-valuemax={12}
                   aria-valuenow={heatingHours}
                 />
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>= {(heatingHours * 1.2).toFixed(1)} kg CO₂e</span>
               </div>
 
               <div className="slider-container" style={{ margin: 0 }}>
                 <div className="slider-header">
-                  <label htmlFor="electricityHours" className="form-label">Active Electronics/AC</label>
+                  <label htmlFor="electricityHours" className="form-label">Laptop / Phone / Electronics</label>
                   <span className="slider-value" style={{ color: '#eab308' }}>{electricityHours} hrs</span>
                 </div>
                 <input
@@ -277,11 +316,12 @@ export const DailyLogger: React.FC<DailyLoggerProps> = ({ onSaveLog, streak }) =
                   aria-valuemax={18}
                   aria-valuenow={electricityHours}
                 />
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>= {(electricityHours * 0.45).toFixed(1)} kg CO₂e</span>
               </div>
             </div>
           </div>
 
-          {/* 4. WASTE & CONSUMPTION - Purple Theme */}
+          {/* 4. WASTE & CONSUMPTION */}
           <div className="glass-card card-theme-waste" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
               <Trash2 size={18} color="var(--info)" />
@@ -299,14 +339,14 @@ export const DailyLogger: React.FC<DailyLoggerProps> = ({ onSaveLog, streak }) =
               >
                 <div className="checkbox-circle" style={{ borderColor: 'rgba(99, 102, 241, 0.5)' }} />
                 <div>
-                  <h4 style={{ fontSize: '0.85rem' }}>Composted & Recycled All Trash</h4>
+                  <h4 style={{ fontSize: '0.85rem' }}>Recycled & Composted</h4>
                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Reduces waste footprint by 0.6 kg</span>
                 </div>
               </div>
 
               <div className="slider-container" style={{ margin: 0 }}>
                 <div className="slider-header">
-                  <label htmlFor="purchases" className="form-label">New Goods/Items Purchased</label>
+                  <label htmlFor="purchases" className="form-label">New Items Purchased</label>
                   <span className="slider-value" style={{ color: 'var(--info)' }}>{purchases} {purchases === 1 ? 'item' : 'items'}</span>
                 </div>
                 <input
@@ -326,18 +366,18 @@ export const DailyLogger: React.FC<DailyLoggerProps> = ({ onSaveLog, streak }) =
             </div>
           </div>
 
-          {/* 5. CUSTOM EXTRA ECO-ACTION - Light Emerald Theme */}
+          {/* 5. CUSTOM ECO-ACTION */}
           <div className="glass-card card-theme-custom" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
               <Leaf size={18} color="var(--primary-light)" />
               <h3 style={{ fontSize: '1rem', fontWeight: '700' }}>Custom Eco-Action</h3>
             </div>
             <div className="form-group" style={{ margin: 0 }}>
-              <label htmlFor="customAction" className="form-label">Type any other custom green action you did today (e.g. used canvas bags):</label>
+              <label htmlFor="customAction" className="form-label">Any other green action you did today:</label>
               <input
                 id="customAction"
                 type="text"
-                placeholder="e.g. Planted a sapling, turned off power strip, did not use elevator..."
+                placeholder="e.g. Used canvas bags, took stairs, planted a sapling..."
                 value={customAction}
                 onChange={(e) => setCustomAction(e.target.value)}
                 className="form-input"
@@ -361,17 +401,58 @@ export const DailyLogger: React.FC<DailyLoggerProps> = ({ onSaveLog, streak }) =
           </button>
         </div>
 
-        {/* Side Panel: Information/Instructions */}
+        {/* Side Panel: Live Category Breakdown */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          {/* Live Breakdown */}
+          <div className="glass-card">
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              📊 Live Breakdown
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {sources.map((src, idx) => {
+                const pct = todayFootprintPreview > 0 ? (src.value / todayFootprintPreview) * 100 : 0;
+                return (
+                  <div key={idx}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '0.25rem' }}>
+                      <span style={{ fontWeight: '600' }}>{src.icon} {src.name}</span>
+                      <span style={{ color: src.color, fontWeight: '600' }}>{src.value.toFixed(1)} kg ({pct.toFixed(0)}%)</span>
+                    </div>
+                    <div className="progress-bar-bg" style={{ height: '6px' }}>
+                      <div className="progress-bar-fill" style={{ width: `${Math.min(pct, 100)}%`, background: src.color, transition: 'width 0.5s ease' }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* How it works */}
           <div className="glass-card">
             <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem' }}>How it Works</h3>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.5', marginBottom: '1rem' }}>
-              Every day, log your activities before going to bed. We compile your transport fuel, electricity, meals, and waste sorting to calculate your exact carbon footprint in kilograms.
+              Log your daily campus activities — transport, meals, energy, and waste. We calculate your exact carbon footprint using science-backed emission factors (EPA, DEFRA).
             </p>
             <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-              We track this data historically and render a weekly chart. Saving carbon sprouts virtual trees in your forest tab!
+              Track trends over time. Every kg saved grows trees in your virtual forest! 🌲
             </p>
           </div>
+
+          {/* Confidence detail */}
+          {confidence.missingHints.length > 0 && (
+            <div className="glass-card" style={{ borderLeft: `3px solid ${confidence.color}` }}>
+              <h3 style={{ fontSize: '0.95rem', marginBottom: '0.5rem', color: confidence.color }}>
+                📊 Improve Accuracy
+              </h3>
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
+                Add more details to improve your estimate confidence:
+              </p>
+              <ul style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.5rem', paddingLeft: '1rem' }}>
+                {confidence.missingHints.map((hint, i) => (
+                  <li key={i} style={{ marginBottom: '0.25rem' }}>Add your {hint}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
 
